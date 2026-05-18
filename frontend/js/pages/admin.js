@@ -28,6 +28,7 @@ async function renderAdminDashboard() {
         <button class="btn btn-primary" onclick="navigateTo('admin-analytics')" style="width:100%;background:var(--gradient-blue)">📊 Analytics & Charts</button>
         <button class="btn btn-outline" onclick="navigateTo('admin-bills')" style="width:100%">🧾 Upload Hospital Bills</button>
         <button class="btn btn-outline" onclick="navigateTo('admin-budget')" style="width:100%">💰 AI Budget Analysis</button>
+        <button class="btn btn-outline" onclick="navigateTo('admin-sust-input')" style="width:100%">📝 Log Sustainability Data</button>
         <button class="btn btn-outline" onclick="navigateTo('admin-sustainability')" style="width:100%">🌱 Sustainability</button>
         <button class="btn btn-outline" onclick="navigateTo('admin-users')" style="width:100%">👥 Manage Users</button>
       </div></div>

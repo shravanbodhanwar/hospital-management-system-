@@ -246,3 +246,30 @@ async def list_appointments(
         "status": a.status.value,
         "reason": a.reason or "",
     } for a in appointments]
+
+
+# ── Notifications ───────────────────────────────────────
+@router.get("/notifications")
+async def get_notifications(
+    current_user: User = Depends(require_role(UserRole.RECEPTIONIST)),
+    db: AsyncSession = Depends(get_db)
+):
+    from datetime import date, timedelta
+    from app.models.medicine import Medicine
+    
+    exp_date = (date.today() + timedelta(days=30)).isoformat()
+    result = await db.execute(
+        select(Medicine).where(
+            Medicine.expiry_date <= exp_date,
+            Medicine.expiry_date != "",
+            Medicine.stock > 0
+        )
+    )
+    expiring = [{
+        "id": m.id,
+        "name": m.name,
+        "stock": m.stock,
+        "expiry_date": m.expiry_date
+    } for m in result.scalars().all()]
+    
+    return {"expiring_medicines": expiring}

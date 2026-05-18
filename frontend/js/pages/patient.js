@@ -35,10 +35,11 @@ function renderUploadReport() {
       <div class="form-group"><label>Report Type</label><select id="reportType">
         <option value="blood_report">Blood Report</option><option value="prescription">Prescription</option>
         <option value="scan">Medical Scan</option><option value="discharge">Discharge Summary</option>
+        <option value="image_format">Image Format</option>
       </select></div>
       <div class="upload-zone" id="uploadZone" onclick="document.getElementById('fileInput').click()">
         <div class="icon">📁</div><p>Click or drag file to upload</p><p style="font-size:0.8rem;margin-top:4px">PDF, JPG, PNG up to 10MB</p>
-        <input type="file" id="fileInput" style="display:none" accept=".pdf,.jpg,.png,.jpeg" onchange="handleFileUpload(event)">
+        <input type="file" id="fileInput" style="display:none" accept=".pdf,.jpg,.png,.jpeg,image/*" onchange="handleFileUpload(event)">
       </div>
       <div id="uploadResult" style="margin-top:20px"></div>
     </div></div>

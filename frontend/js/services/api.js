@@ -1,4 +1,4 @@
-const API = window.location.port === '8080' ? 'http://localhost:8000/api' : '/api';
+const API = (window.location.port && window.location.port !== "80") ? `http://localhost:${window.location.port}/api` : "http://localhost:8000/api";
 
 class ApiService {
   constructor() {
@@ -26,7 +26,7 @@ class ApiService {
   async request(path, options = {}) {
     const headers = { 'Content-Type': 'application/json', ...options.headers };
     if (this.token) headers['Authorization'] = `Bearer ${this.token}`;
-    
+
     const res = await fetch(`${API}${path}`, { ...options, headers });
     if (res.status === 401) { this.clearAuth(); window.location.hash = '#login'; return null; }
     if (!res.ok) {

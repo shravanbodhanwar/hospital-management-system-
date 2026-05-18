@@ -21,7 +21,7 @@ class AIService:
             response = httpx.post(
                 self.ollama_url,
                 json={"model": self.model, "prompt": full_prompt, "stream": False},
-                timeout=15.0
+                timeout=120.0
             )
             response.raise_for_status()
             return response.json().get("response", "").strip()

@@ -25,7 +25,29 @@ async function renderReceptionistDashboard() {
         <button class="btn btn-outline" onclick="navigateTo('rec-patients')" style="width:100%">👥 View All Patients</button>
         <button class="btn btn-outline" onclick="navigateTo('rec-appointments')" style="width:100%">📋 View All Appointments</button>
       </div></div>
-    </div>`;
+    </div>
+    <div class="card" style="margin-top:20px; border-color:rgba(239, 68, 68, 0.3)"><div class="card-header"><h3 style="color:var(--accent-red)">⚠️ Notifications & Alerts</h3></div><div class="card-body" id="recNotifications">
+      <div class="spinner"></div>
+    </div></div>`;
+}
+
+// Fetch notifications logic
+function fetchRecNotifications() {
+  setTimeout(async () => {
+    const el = document.getElementById('recNotifications');
+    if (!el) return;
+    try {
+      const data = await api.get('/receptionist/notifications');
+      const meds = data.expiring_medicines || [];
+      if (meds.length) {
+        el.innerHTML = meds.map(m => `<div class="alert-item"><div class="alert-dot" style="background:var(--accent-red)"></div><div style="flex:1"><strong>Expiring Medicine: ${m.name}</strong><br><span style="font-size:0.8rem;color:var(--text-secondary)">Expires on: ${m.expiry_date} | Stock: ${m.stock}</span></div></div>`).join('');
+      } else {
+        el.innerHTML = '<p style="color:var(--text-muted)">No new notifications.</p>';
+      }
+    } catch(e) {
+      el.innerHTML = '<p style="color:var(--text-muted)">Could not load notifications.</p>';
+    }
+  }, 100);
 }
 
 // ===== Register Patient =====
@@ -160,7 +182,7 @@ async function renderRecAppointments() {
   try {
     const apts = await api.get('/receptionist/appointments');
     window._recAppointments = apts;
-    html += `<div class="card"><div class="card-body"><div class="table-wrap"><table><thead><tr><th>ID</th><th>Patient</th><th>Doctor</th><th>Specialization</th><th>Date</th><th>Time</th><th>Reason</th><th>Status</th></tr></thead><tbody id="recAptTable">${renderRecAptRows(apts)}</tbody></table></div></div></div>`;
+    html += `<div class="card"><div class="card-body"><div class="table-wrap"><table><thead><tr><th>ID</th><th>Patient</th><th>Doctor</th><th>Specialization</th><th>Date</th><th>Time</th><th>Reason</th><th>Status</th><th>Action</th></tr></thead><tbody id="recAptTable">${renderRecAptRows(apts)}</tbody></table></div></div></div>`;
   } catch { html += '<p>Failed to load appointments.</p>'; }
   return html;
 }
@@ -170,6 +192,7 @@ function renderRecAptRows(apts) {
     <td>${a.id}</td><td><strong>${a.patient_name}</strong></td><td>${a.doctor_name}</td><td><span class="badge badge-info">${a.specialization||'—'}</span></td>
     <td>${a.date}</td><td>${a.time}</td><td>${a.reason||'—'}</td>
     <td>${a.status==='pending'?'<span class="badge badge-warning">PENDING</span>':a.status==='confirmed'?'<span class="badge badge-success">CONFIRMED</span>':a.status==='completed'?'<span class="badge badge-info">COMPLETED</span>':'<span class="badge badge-danger">CANCELLED</span>'}</td>
+    <td><button class="btn btn-sm btn-outline" onclick="printBill(${a.id}, '${a.patient_name}', '${a.doctor_name}', '${a.date}', '${a.time}')">🖨️ Print Bill</button></td>
   </tr>`).join('');
 }
 
@@ -179,4 +202,31 @@ async function filterRecAppointments() {
     const apts = await api.get('/receptionist/appointments' + (date ? `?date_filter=${date}` : ''));
     document.getElementById('recAptTable').innerHTML = renderRecAptRows(apts);
   } catch {}
+}
+
+function printBill(id, patient, doctor, date, time) {
+  const printContent = \`
+    <div style="padding:40px; font-family:sans-serif; max-width:600px; margin:0 auto; border:1px solid #ccc; border-radius:8px;">
+      <h1 style="text-align:center; color:#e8795a;">🏥 SmartHospital Invoice</h1>
+      <p style="text-align:center; color:#666;">Official Appointment Receipt</p>
+      <hr style="margin:20px 0; border:none; border-top:1px dashed #ccc;">
+      <table style="width:100%; text-align:left; margin-bottom:20px;">
+        <tr><td style="padding:4px 0;"><strong>Appointment ID:</strong></td><td>#\${id}</td></tr>
+        <tr><td style="padding:4px 0;"><strong>Patient Name:</strong></td><td>\${patient}</td></tr>
+        <tr><td style="padding:4px 0;"><strong>Doctor Name:</strong></td><td>\${doctor}</td></tr>
+        <tr><td style="padding:4px 0;"><strong>Date & Time:</strong></td><td>\${date} at \${time}</td></tr>
+      </table>
+      <hr style="margin:20px 0; border:none; border-top:1px dashed #ccc;">
+      <table style="width:100%; text-align:left; margin-bottom:20px;">
+        <tr><th style="padding-bottom:10px;">Description</th><th style="text-align:right; padding-bottom:10px;">Amount</th></tr>
+        <tr><td>Consultation Fee</td><td style="text-align:right;">₹500.00</td></tr>
+      </table>
+      <hr style="margin:20px 0; border:none; border-top:1px dashed #ccc;">
+      <h3 style="text-align:right; margin:10px 0;">Total: ₹500.00</h3>
+      <p style="text-align:center; margin-top:40px; font-size:0.85rem; color:#888;">Thank you for choosing SmartHospital.<br>Please keep this receipt for your records.</p>
+    </div>
+  \`;
+  const printWin = window.open('', '_blank');
+  printWin.document.write('<html><head><title>Print Bill - #'+id+'</title></head><body onload="window.print(); window.close();">' + printContent + '</body></html>');
+  printWin.document.close();
 }

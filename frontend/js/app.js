@@ -33,7 +33,7 @@ const SIDEBAR_CONFIG = {
     { id: 'admin-report', icon: '📄', label: 'AI Report', render: renderSustReport },
   ],
   receptionist: [
-    { id: 'rec-dashboard', icon: '🏠', label: 'Dashboard', render: renderReceptionistDashboard },
+    { id: 'rec-dashboard', icon: '🏠', label: 'Dashboard', render: renderReceptionistDashboard, post: fetchRecNotifications },
     { id: 'rec-register', icon: '👤', label: 'Register Patient', render: renderRecRegister },
     { id: 'rec-book', icon: '📅', label: 'Book Appointment', render: renderRecBook },
     { id: 'rec-patients', icon: '👥', label: 'All Patients', render: renderRecPatients },
@@ -193,13 +193,30 @@ function logout() {
 }
 
 // ===== App Init =====
+// ===== App Init =====
 function initApp() {
-  const app = document.getElementById('app');
-  if (api.isLoggedIn()) {
-    renderDashboard();
-  } else {
-    app.innerHTML = renderLanding();
+  console.log('initApp called');
+  try {
+    const app = document.getElementById('app');
+    if (!app) {
+      console.error('App container not found');
+      return;
+    }
+    if (api.isLoggedIn()) {
+      renderDashboard();
+    } else {
+      app.innerHTML = renderLanding();
+    }
+  } catch (e) {
+    console.error('Error in initApp:', e);
   }
 }
 
-document.addEventListener('DOMContentLoaded', initApp);
+// Ensure initApp runs on DOMContentLoaded or after 2 seconds fallback
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', initApp);
+} else {
+  initApp();
+}
+setTimeout(initApp, 2000);
+
