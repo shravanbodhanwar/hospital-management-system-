@@ -1,4 +1,4 @@
-const API = 'http://localhost:8000/api';
+const API = window.location.port === '8080' ? 'http://localhost:8000/api' : '/api';
 
 class ApiService {
   constructor() {
