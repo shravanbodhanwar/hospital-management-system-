@@ -40,7 +40,7 @@ class AIService:
         if not self.gemini_api_key:
             return None
         try:
-            model = genai.GenerativeModel('gemini-1.5-flash')
+            model = genai.GenerativeModel('gemini-1.5-pro')
             full_prompt = f"{system}\n\nUser: {prompt}" if system else prompt
             response = model.generate_content(full_prompt)
             return response.text.strip()
