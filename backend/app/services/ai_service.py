@@ -1,9 +1,10 @@
 """
 AI Service - Generative AI for report summaries, health explanations, and recommendations.
 Integrates with local Ollama instance (default model: llama3).
-Falls back to mock responses if Ollama is not running.
+Falls back to Google Gemini API if Ollama is not running.
 """
 import httpx
+import google.generativeai as genai
 from typing import Optional
 from app.config import settings
 
@@ -13,6 +14,9 @@ class AIService:
     def __init__(self):
         self.ollama_url = settings.OLLAMA_URL
         self.model = settings.OLLAMA_MODEL
+        self.gemini_api_key = settings.GEMINI_API_KEY
+        if self.gemini_api_key:
+            genai.configure(api_key=self.gemini_api_key)
     
     def _call_ollama(self, prompt: str, system: str = "") -> Optional[str]:
         """Call local Ollama API. Returns None if it fails."""
@@ -30,6 +34,19 @@ class AIService:
         except Exception as e:
             print(f"Ollama AI Error: {e}")
             return None
+    
+    def _call_gemini(self, prompt: str, system: str = "") -> Optional[str]:
+        """Call Google Gemini API. Returns None if it fails."""
+        if not self.gemini_api_key:
+            return None
+        try:
+            model = genai.GenerativeModel('gemini-pro')
+            full_prompt = f"{system}\n\nUser: {prompt}" if system else prompt
+            response = model.generate_content(full_prompt)
+            return response.text.strip()
+        except Exception as e:
+            print(f"Gemini AI Error: {e}")
+            return None
 
     def summarize_report(self, report_type: str, filename: str) -> str:
         """Generate a plain-language summary of a medical report."""
@@ -38,6 +55,10 @@ class AIService:
         ollama_resp = self._call_ollama(prompt, system="You are a helpful medical AI assistant summarizing medical report formats for a patient.")
         if ollama_resp:
             return ollama_resp
+        
+        gemini_resp = self._call_gemini(prompt, system="You are a helpful medical AI assistant summarizing medical report formats for a patient.")
+        if gemini_resp:
+            return gemini_resp
 
         # Fallback
         return f"""📄 **Medical Document Analysis (Fallback)** — *{filename}*
@@ -56,6 +77,10 @@ class AIService:
         ollama_resp = self._call_ollama(prompt, system="You are a medical AI assistant. Explain risk scores clearly to a patient without causing panic.")
         if ollama_resp:
             return ollama_resp
+        
+        gemini_resp = self._call_gemini(prompt, system="You are a medical AI assistant. Explain risk scores clearly to a patient without causing panic.")
+        if gemini_resp:
+            return gemini_resp
 
         # Fallback
         risk_level = risk_data.get("risk_level", "low")
@@ -70,12 +95,16 @@ class AIService:
         ollama_resp = self._call_ollama(prompt, system="You are a hospital administration AI specializing in environmental sustainability and operations.")
         if ollama_resp:
             return ollama_resp
+        
+        gemini_resp = self._call_gemini(prompt, system="You are a hospital administration AI specializing in environmental sustainability and operations.")
+        if gemini_resp:
+            return gemini_resp
 
         # Fallback
         carbon = predictions.get("predicted_monthly_carbon_kg", 0)
         return f"""# 🌱 Monthly Sustainability Report (Fallback)
 **Carbon Footprint:** {carbon:.0f} kg CO₂ estimated for this month. 
-*Ollama AI is currently offline. Please start your local Ollama instance for full AI reports.*"""
+*AI services are currently offline. Please configure Ollama or Gemini API for full AI reports.*"""
     
     def generate_chatbot_response(self, message: str, user_role: str) -> str:
         """Chatbot responses."""
@@ -85,9 +114,13 @@ class AIService:
         ollama_resp = self._call_ollama(prompt, system=system_msg)
         if ollama_resp:
             return ollama_resp
+        
+        gemini_resp = self._call_gemini(prompt, system=system_msg)
+        if gemini_resp:
+            return gemini_resp
 
         # Fallback
-        return "I am currently running in offline mode. Please start the local Ollama AI engine to enable full chat capabilities. Remember to always consult a doctor for professional medical advice."
+        return "I am currently running in offline mode. Please configure Ollama or Gemini API to enable full chat capabilities. Remember to always consult a doctor for professional medical advice."
 
     def analyze_budget(self, monthly_expenses: dict, monthly_revenue: dict) -> str:
         """Generate AI budget analysis and next-month prediction."""
@@ -99,12 +132,16 @@ class AIService:
         ollama_resp = self._call_ollama(prompt, system="You are a hospital financial analyst AI.")
         if ollama_resp:
             return ollama_resp
+        
+        gemini_resp = self._call_gemini(prompt, system="You are a hospital financial analyst AI.")
+        if gemini_resp:
+            return gemini_resp
 
         # Fallback
         avg = sum(monthly_expenses.values()) / len(monthly_expenses) if monthly_expenses else 0
         return f"""## 💰 AI Budget Analysis (Fallback)
 Average monthly expense is ₹{avg:,.2f}. 
-*Ollama AI is offline. Start your local Ollama instance for detailed financial insights.*"""
+*AI services are offline. Configure Ollama or Gemini API for detailed financial insights.*"""
 
 # Global instance
 ai_service = AIService()
