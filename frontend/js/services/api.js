@@ -1,4 +1,16 @@
-const API = window.location.port === '8080' ? 'http://localhost:8000/api' : '/api';
+/** Production (Vercel): uses /api → proxied to Render in vercel.json */
+function resolveApiBase() {
+  if (window.API_BASE) return window.API_BASE.replace(/\/$/, '');
+  const { hostname, port } = window.location;
+  if (hostname === 'localhost' || hostname === '127.0.0.1') {
+    if (port === '8080' || port === '5500') return 'http://localhost:8000/api';
+    if (port === '8000' || port === '8001') return `${window.location.protocol}//${hostname}:${port}/api`;
+    return '/api';
+  }
+  return '/api';
+}
+
+const API = resolveApiBase();
 
 class ApiService {
   constructor() {
@@ -26,12 +38,26 @@ class ApiService {
   async request(path, options = {}) {
     const headers = { 'Content-Type': 'application/json', ...options.headers };
     if (this.token) headers['Authorization'] = `Bearer ${this.token}`;
-    
-    const res = await fetch(`${API}${path}`, { ...options, headers });
-    if (res.status === 401) { this.clearAuth(); window.location.hash = '#login'; return null; }
+
+    const timeoutMs = options.timeoutMs ?? 30000;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+    let res;
+    try {
+      res = await fetch(`${API}${path}`, { ...options, headers, signal: controller.signal });
+    } catch (err) {
+      if (err.name === 'AbortError') throw new Error('Request timed out. Try again in a moment.');
+      throw new Error('Cannot reach the API. Check that the Render backend is running.');
+    } finally {
+      clearTimeout(timer);
+    }
+
+    if (res.status === 401) { this.clearAuth(); return null; }
     if (!res.ok) {
       const err = await res.json().catch(() => ({ detail: 'Request failed' }));
-      throw new Error(err.detail || 'Request failed');
+      const detail = err.detail;
+      throw new Error(typeof detail === 'string' ? detail : 'Request failed');
     }
     return res.json();
   }
@@ -44,11 +70,13 @@ class ApiService {
     const headers = {};
     if (this.token) headers['Authorization'] = `Bearer ${this.token}`;
     const res = await fetch(`${API}${path}`, { method: 'POST', headers, body: formData });
-    if (!res.ok) { const err = await res.json().catch(() => ({ detail: 'Upload failed' })); throw new Error(err.detail); }
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: 'Upload failed' }));
+      throw new Error(err.detail || 'Upload failed');
+    }
     return res.json();
   }
 
-  // Auth
   login(email, password) { return this.post('/auth/login', { email, password }); }
   register(data) { return this.post('/auth/register', data); }
 }

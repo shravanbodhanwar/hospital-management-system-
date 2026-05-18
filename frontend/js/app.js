@@ -63,7 +63,16 @@ function navigateTo(pageId) {
   const result = page.render();
   if (result instanceof Promise) {
     content.innerHTML = '<div class="spinner"></div>';
-    result.then(html => { content.innerHTML = html; if (page.post) page.post(); });
+    result.then(html => {
+      content.innerHTML = html || '<div class="card"><div class="card-body"><p>Could not load page.</p></div></div>';
+      if (page.post) page.post();
+    }).catch(err => {
+      content.innerHTML = `<div class="card"><div class="card-body">
+        <h3 style="color:var(--accent-red)">Failed to load</h3>
+        <p style="margin:12px 0;color:var(--text-muted)">${err.message}</p>
+        <button class="btn btn-outline" onclick="navigateTo('${pageId}')">Retry</button>
+      </div></div>`;
+    });
   } else {
     content.innerHTML = result;
     if (page.post) setTimeout(page.post, 100);
@@ -194,12 +203,29 @@ function logout() {
 
 // ===== App Init =====
 function initApp() {
-  const app = document.getElementById('app');
-  if (api.isLoggedIn()) {
-    renderDashboard();
-  } else {
-    app.innerHTML = renderLanding();
+  try {
+    const app = document.getElementById('app');
+    if (!app) return;
+    if (api.isLoggedIn()) {
+      renderDashboard();
+    } else {
+      app.innerHTML = renderLanding();
+    }
+  } catch (e) {
+    console.error('initApp failed:', e);
+    const app = document.getElementById('app');
+    if (app) {
+      app.innerHTML = `<div class="card" style="max-width:480px;margin:80px auto;padding:24px">
+        <h2 style="color:var(--accent-red)">App failed to load</h2>
+        <p style="margin-top:12px;color:var(--text-muted)">${e.message}</p>
+        <button class="btn btn-primary" style="margin-top:16px" onclick="location.reload()">Reload</button>
+      </div>`;
+    }
   }
 }
 
-document.addEventListener('DOMContentLoaded', initApp);
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', initApp);
+} else {
+  initApp();
+}

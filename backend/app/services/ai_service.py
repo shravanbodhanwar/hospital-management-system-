@@ -3,19 +3,21 @@ AI Service - Generative AI for report summaries, health explanations, and recomm
 Integrates with local Ollama instance (default model: llama3).
 Falls back to mock responses if Ollama is not running.
 """
-import random
 import httpx
 from typing import Optional
+from app.config import settings
 
 class AIService:
     """Generative AI service for healthcare insights."""
     
     def __init__(self):
-        self.ollama_url = "http://localhost:11434/api/generate"
-        self.model = "llama3"
+        self.ollama_url = settings.OLLAMA_URL
+        self.model = settings.OLLAMA_MODEL
     
     def _call_ollama(self, prompt: str, system: str = "") -> Optional[str]:
         """Call local Ollama API. Returns None if it fails."""
+        if not self.ollama_url or not self.ollama_url.startswith("http"):
+            return None
         try:
             full_prompt = f"{system}\n\nUser: {prompt}" if system else prompt
             response = httpx.post(
