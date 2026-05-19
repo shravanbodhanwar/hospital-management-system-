@@ -11,6 +11,8 @@ class Settings(BaseSettings):
     GEMINI_API_KEY: str = ""
     OLLAMA_URL: str = "http://localhost:11434/api/generate"
     OLLAMA_MODEL: str = "llama3"
+    OLLAMA_AUTH_USER: str = "api"  # Ngrok / tunnel HTTP basic-auth username
+    OLLAMA_API_KEY: str = ""  # Ngrok / tunnel HTTP basic-auth password
     CORS_ORIGINS: str = "http://localhost:8080,http://127.0.0.1:8080,http://localhost,http://localhost:80"
 
     class Config:

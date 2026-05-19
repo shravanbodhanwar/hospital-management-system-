@@ -55,7 +55,11 @@ async def chatbot(data: ChatMessage, current_user: User = Depends(get_current_us
 
 @app.get("/api/health")
 async def health_check():
-    return {"status": "healthy", "app": settings.APP_NAME}
+    return {
+        "status": "healthy",
+        "app": settings.APP_NAME,
+        "ai": ai_service.ai_status(),
+    }
 
 # Serve frontend static files
 import os
