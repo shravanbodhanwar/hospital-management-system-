@@ -2,21 +2,45 @@
 AI Service - Generative AI for report summaries, health explanations, and recommendations.
 Tries Ollama first (local Docker or remote Ngrok tunnel), then Google Gemini, then static fallbacks.
 """
+from urllib.parse import urlparse
+
 import httpx
 from google import genai
 from google.genai import types
 from typing import Any, Optional
 from app.config import settings
 
-GEMINI_MODEL = "gemini-2.0-flash"
+# Tried in order; skips to next on 429 / model-not-found
+GEMINI_MODELS = (
+    "gemini-2.0-flash-lite",
+    "gemini-1.5-flash",
+    "gemini-2.5-flash",
+    "gemini-2.0-flash",
+)
+OLLAMA_GENERATE_PATH = "/api/generate"
 OLLAMA_TIMEOUT_SEC = 45.0
+
+
+def _normalize_ollama_url(url: str) -> str:
+    """Fix common Render misconfig: ngrok host only, missing /api/generate."""
+    url = url.strip().rstrip("/")
+    if not url:
+        return url
+    if url.endswith(OLLAMA_GENERATE_PATH):
+        return url
+    path = urlparse(url).path
+    if path in ("", "/"):
+        fixed = f"{url}{OLLAMA_GENERATE_PATH}"
+        print(f"WARNING: OLLAMA_URL missing {OLLAMA_GENERATE_PATH} — using {fixed}")
+        return fixed
+    return url
 
 
 class AIService:
     """Generative AI service for healthcare insights."""
 
     def __init__(self):
-        self.ollama_url = (settings.OLLAMA_URL or "").strip()
+        self.ollama_url = _normalize_ollama_url(settings.OLLAMA_URL or "")
         self.model = settings.OLLAMA_MODEL
         self.ollama_auth_user = (settings.OLLAMA_AUTH_USER or "api").strip() or "api"
         self.ollama_api_key = settings.OLLAMA_API_KEY.strip() if settings.OLLAMA_API_KEY else ""
@@ -32,18 +56,32 @@ class AIService:
             f"{' (tunnel auth)' if ollama and self.ollama_api_key else ''}, "
             f"gemini={'on' if gemini else 'off'}"
         )
+        if warning := self._ollama_url_warning():
+            print(f"WARNING: {warning}")
 
     def _ollama_enabled(self) -> bool:
         return bool(self.ollama_url and self.ollama_url.startswith("http"))
+
+    def _ollama_url_warning(self) -> Optional[str]:
+        if not self._ollama_enabled():
+            return None
+        if not self.ollama_url.endswith(OLLAMA_GENERATE_PATH):
+            return (
+                f"OLLAMA_URL should end with {OLLAMA_GENERATE_PATH} "
+                f"(current path: {urlparse(self.ollama_url).path or '/'})"
+            )
+        return None
 
     def ai_status(self) -> dict[str, Any]:
         """Non-secret snapshot for health checks / Render debugging."""
         return {
             "ollama_configured": self._ollama_enabled(),
+            "ollama_url": self.ollama_url if self._ollama_enabled() else None,
             "ollama_tunnel_auth": bool(self.ollama_api_key),
+            "ollama_warning": self._ollama_url_warning(),
             "gemini_configured": bool(self.gemini_api_key),
             "ollama_model": self.model,
-            "gemini_model": GEMINI_MODEL if self.gemini_api_key else None,
+            "gemini_models": list(GEMINI_MODELS) if self.gemini_api_key else None,
         }
 
     def _get_gemini_client(self) -> Optional[genai.Client]:
@@ -83,6 +121,16 @@ class AIService:
             response.raise_for_status()
             text = response.json().get("response") or ""
             return text.strip() or None
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code == 403:
+                print(
+                    f"Ollama AI Error: 403 Forbidden — check OLLAMA_URL ends with "
+                    f"{OLLAMA_GENERATE_PATH}, Ngrok is running, and OLLAMA_AUTH_USER/"
+                    f"OLLAMA_API_KEY match your tunnel password."
+                )
+            else:
+                print(f"Ollama AI Error: {e}")
+            return None
         except Exception as e:
             print(f"Ollama AI Error: {e}")
             return None
@@ -92,22 +140,34 @@ class AIService:
         client = self._get_gemini_client()
         if not client:
             return None
-        try:
-            config = (
-                types.GenerateContentConfig(system_instruction=system)
-                if system
-                else None
-            )
-            response = client.models.generate_content(
-                model=GEMINI_MODEL,
-                contents=prompt,
-                config=config,
-            )
-            text = response.text
-            return text.strip() if text else None
-        except Exception as e:
-            print(f"Gemini AI Error: {e}")
-            return None
+
+        config = (
+            types.GenerateContentConfig(system_instruction=system) if system else None
+        )
+        last_error: Optional[Exception] = None
+
+        for model in GEMINI_MODELS:
+            try:
+                response = client.models.generate_content(
+                    model=model,
+                    contents=prompt,
+                    config=config,
+                )
+                text = response.text
+                if text and text.strip():
+                    return text.strip()
+            except Exception as e:
+                last_error = e
+                err = str(e)
+                if "429" in err or "RESOURCE_EXHAUSTED" in err:
+                    print(f"Gemini quota hit for {model}, trying next model…")
+                    continue
+                print(f"Gemini AI Error ({model}): {e}")
+                return None
+
+        if last_error:
+            print(f"Gemini AI Error (all models): {last_error}")
+        return None
 
     def _ai_response(self, prompt: str, system: str = "") -> Optional[str]:
         """Ollama first, then Gemini."""
