@@ -1,6 +1,6 @@
 """
 AI Service - Generative AI for report summaries, health explanations, and recommendations.
-Tries Ollama first (local Docker or remote Ngrok tunnel), then Google Gemini, then static fallbacks.
+Default: Google Gemini (Render). Optional: local Ollama via AI_PROVIDER=ollama or auto.
 """
 from urllib.parse import urlparse
 
@@ -44,6 +44,7 @@ class AIService:
         self.ollama_auth_user = (settings.OLLAMA_AUTH_USER or "api").strip() or "api"
         self.ollama_api_key = settings.OLLAMA_API_KEY.strip() if settings.OLLAMA_API_KEY else ""
         self.gemini_api_key = settings.GEMINI_API_KEY.strip() if settings.GEMINI_API_KEY else ""
+        self.ai_provider = (settings.AI_PROVIDER or "gemini").strip().lower()
         self._gemini_client: Optional[genai.Client] = None
         self._log_startup_status()
 
@@ -51,10 +52,13 @@ class AIService:
         ollama = self._ollama_enabled()
         gemini = bool(self.gemini_api_key)
         print(
-            f"AI backends: ollama={'on' if ollama else 'off'}"
-            f"{' (tunnel auth)' if ollama and self.ollama_api_key else ''}, "
-            f"gemini={'on' if gemini else 'off'}"
+            f"AI provider: {self.ai_provider} | "
+            f"gemini={'on' if gemini else 'off'} | "
+            f"ollama={'on' if ollama else 'off'}"
+            f"{' (tunnel auth)' if ollama and self.ollama_api_key else ''}"
         )
+        if self.ai_provider == "gemini" and not gemini:
+            print("WARNING: AI_PROVIDER=gemini but GEMINI_API_KEY is not set.")
         if self._raw_ollama_url and not self._raw_ollama_url.rstrip("/").endswith(
             OLLAMA_GENERATE_PATH
         ):
@@ -81,13 +85,14 @@ class AIService:
     def ai_status(self) -> dict[str, Any]:
         """Non-secret snapshot for health checks / Render debugging."""
         return {
+            "provider": self.ai_provider,
+            "gemini_configured": bool(self.gemini_api_key),
+            "gemini_models": list(GEMINI_MODELS) if self.gemini_api_key else None,
             "ollama_configured": self._ollama_enabled(),
             "ollama_url": self.ollama_url if self._ollama_enabled() else None,
             "ollama_tunnel_auth": bool(self.ollama_api_key),
             "ollama_warning": self._ollama_url_warning(),
-            "gemini_configured": bool(self.gemini_api_key),
-            "ollama_model": self.model,
-            "gemini_models": list(GEMINI_MODELS) if self.gemini_api_key else None,
+            "ollama_model": self.model if self._ollama_enabled() else None,
         }
 
     def _get_gemini_client(self) -> Optional[genai.Client]:
@@ -193,8 +198,13 @@ class AIService:
         return None
 
     def _ai_response(self, prompt: str, system: str = "") -> Optional[str]:
-        """Ollama first, then Gemini."""
-        return self._call_ollama(prompt, system=system) or self._call_gemini(
+        """Route by AI_PROVIDER: gemini | ollama | auto (gemini then ollama)."""
+        if self.ai_provider == "gemini":
+            return self._call_gemini(prompt, system=system)
+        if self.ai_provider == "ollama":
+            return self._call_ollama(prompt, system=system)
+        # auto
+        return self._call_gemini(prompt, system=system) or self._call_ollama(
             prompt, system=system
         )
 
@@ -255,7 +265,7 @@ class AIService:
         carbon = predictions.get("predicted_monthly_carbon_kg", 0)
         return f"""# 🌱 Monthly Sustainability Report (Fallback)
 **Carbon Footprint:** {carbon:.0f} kg CO₂ estimated for this month.
-*AI services are currently offline. Please configure Ollama or Gemini API for full AI reports.*"""
+*AI offline — set GEMINI_API_KEY on Render (AI Studio) and redeploy.*"""
 
     def generate_chatbot_response(self, message: str, user_role: str) -> str:
         """Chatbot responses."""
@@ -272,9 +282,8 @@ class AIService:
             return resp
 
         return (
-            "I am currently running in offline mode. Please configure Ollama or Gemini API "
-            "to enable full chat capabilities. Remember to always consult a doctor for "
-            "professional medical advice."
+            "I am currently running in offline mode. Please set GEMINI_API_KEY on the server "
+            "and redeploy. Remember to always consult a doctor for professional medical advice."
         )
 
     def analyze_budget(self, monthly_expenses: dict, monthly_revenue: dict) -> str:
@@ -294,7 +303,7 @@ class AIService:
         avg = sum(monthly_expenses.values()) / len(monthly_expenses)
         return f"""## 💰 AI Budget Analysis (Fallback)
 Average monthly expense is ₹{avg:,.2f}.
-*AI services are offline. Configure Ollama or Gemini API for detailed financial insights.*"""
+*AI offline — set GEMINI_API_KEY for detailed financial insights.*"""
 
 
 ai_service = AIService()

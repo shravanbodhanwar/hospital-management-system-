@@ -9,6 +9,8 @@ class Settings(BaseSettings):
     DATABASE_URL: str = "sqlite+aiosqlite:///./hospital.db"
     UPLOAD_DIR: str = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "uploads")
     GEMINI_API_KEY: str = ""
+    # gemini = cloud only (Render) | ollama = local/ngrok | auto = gemini then ollama
+    AI_PROVIDER: str = "gemini"
     OLLAMA_URL: str = "http://localhost:11434/api/generate"
     OLLAMA_MODEL: str = "llama3"
     OLLAMA_AUTH_USER: str = "api"  # Ngrok / tunnel HTTP basic-auth username
