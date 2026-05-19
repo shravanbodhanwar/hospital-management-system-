@@ -10,12 +10,12 @@ from google.genai import types
 from typing import Any, Optional
 from app.config import settings
 
-# Tried in order; skips to next on 429 / model-not-found
+# Tried in order; skips to next on quota (429) or unavailable model (404)
 GEMINI_MODELS = (
-    "gemini-2.0-flash-lite",
-    "gemini-1.5-flash",
     "gemini-2.5-flash",
     "gemini-2.0-flash",
+    "gemini-2.0-flash-lite",
+    "gemini-2.5-flash-lite",
 )
 OLLAMA_GENERATE_PATH = "/api/generate"
 OLLAMA_TIMEOUT_SEC = 45.0
@@ -30,9 +30,7 @@ def _normalize_ollama_url(url: str) -> str:
         return url
     path = urlparse(url).path
     if path in ("", "/"):
-        fixed = f"{url}{OLLAMA_GENERATE_PATH}"
-        print(f"WARNING: OLLAMA_URL missing {OLLAMA_GENERATE_PATH} — using {fixed}")
-        return fixed
+        return f"{url}{OLLAMA_GENERATE_PATH}"
     return url
 
 
@@ -40,7 +38,8 @@ class AIService:
     """Generative AI service for healthcare insights."""
 
     def __init__(self):
-        self.ollama_url = _normalize_ollama_url(settings.OLLAMA_URL or "")
+        self._raw_ollama_url = (settings.OLLAMA_URL or "").strip()
+        self.ollama_url = _normalize_ollama_url(self._raw_ollama_url)
         self.model = settings.OLLAMA_MODEL
         self.ollama_auth_user = (settings.OLLAMA_AUTH_USER or "api").strip() or "api"
         self.ollama_api_key = settings.OLLAMA_API_KEY.strip() if settings.OLLAMA_API_KEY else ""
@@ -56,6 +55,13 @@ class AIService:
             f"{' (tunnel auth)' if ollama and self.ollama_api_key else ''}, "
             f"gemini={'on' if gemini else 'off'}"
         )
+        if self._raw_ollama_url and not self._raw_ollama_url.rstrip("/").endswith(
+            OLLAMA_GENERATE_PATH
+        ):
+            print(
+                f"NOTE: OLLAMA_URL was missing {OLLAMA_GENERATE_PATH}; "
+                f"set it explicitly to: {self.ollama_url}"
+            )
         if warning := self._ollama_url_warning():
             print(f"WARNING: {warning}")
 
@@ -103,37 +109,51 @@ class AIService:
         if not self._ollama_enabled():
             return None
 
-        auth = (
-            (self.ollama_auth_user, self.ollama_api_key)
-            if self.ollama_api_key
-            else None
-        )
+        full_prompt = f"{system}\n\nUser: {prompt}" if system else prompt
+        payload = {"model": self.model, "prompt": full_prompt, "stream": False}
+        headers = self._ollama_headers()
 
-        try:
-            full_prompt = f"{system}\n\nUser: {prompt}" if system else prompt
-            response = httpx.post(
-                self.ollama_url,
-                json={"model": self.model, "prompt": full_prompt, "stream": False},
-                auth=auth,
-                headers=self._ollama_headers(),
-                timeout=OLLAMA_TIMEOUT_SEC,
-            )
-            response.raise_for_status()
-            text = response.json().get("response") or ""
-            return text.strip() or None
-        except httpx.HTTPStatusError as e:
-            if e.response.status_code == 403:
-                print(
-                    f"Ollama AI Error: 403 Forbidden — check OLLAMA_URL ends with "
-                    f"{OLLAMA_GENERATE_PATH}, Ngrok is running, and OLLAMA_AUTH_USER/"
-                    f"OLLAMA_API_KEY match your tunnel password."
+        # Try with tunnel auth first (if configured), then without (plain ngrok tunnel)
+        auth_attempts: list[Optional[tuple[str, str]]] = []
+        if self.ollama_api_key:
+            auth_attempts.append((self.ollama_auth_user, self.ollama_api_key))
+        auth_attempts.append(None)
+
+        last_error: Optional[Exception] = None
+        for auth in auth_attempts:
+            try:
+                response = httpx.post(
+                    self.ollama_url,
+                    json=payload,
+                    auth=auth,
+                    headers=headers,
+                    timeout=OLLAMA_TIMEOUT_SEC,
                 )
-            else:
+                response.raise_for_status()
+                text = response.json().get("response") or ""
+                return text.strip() or None
+            except httpx.HTTPStatusError as e:
+                last_error = e
+                if e.response.status_code in (401, 403) and auth is not None:
+                    print("Ollama: tunnel auth rejected, retrying without basic auth…")
+                    continue
+                if e.response.status_code == 403:
+                    body = (e.response.text or "")[:200]
+                    print(
+                        "Ollama AI Error: 403 Forbidden. "
+                        "If using ngrok --basic-auth=user:pass, set OLLAMA_AUTH_USER and "
+                        f"OLLAMA_API_KEY to match. Response: {body!r}"
+                    )
+                else:
+                    print(f"Ollama AI Error: {e}")
+                return None
+            except Exception as e:
                 print(f"Ollama AI Error: {e}")
-            return None
-        except Exception as e:
-            print(f"Ollama AI Error: {e}")
-            return None
+                return None
+
+        if last_error:
+            print(f"Ollama AI Error: {last_error}")
+        return None
 
     def _call_gemini(self, prompt: str, system: str = "") -> Optional[str]:
         """Call Google Gemini API. Returns None if it fails."""
@@ -161,6 +181,9 @@ class AIService:
                 err = str(e)
                 if "429" in err or "RESOURCE_EXHAUSTED" in err:
                     print(f"Gemini quota hit for {model}, trying next model…")
+                    continue
+                if "404" in err or "NOT_FOUND" in err:
+                    print(f"Gemini model {model} unavailable, trying next…")
                     continue
                 print(f"Gemini AI Error ({model}): {e}")
                 return None
